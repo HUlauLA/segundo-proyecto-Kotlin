@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "542284239773",
+    "project_id": "segundo-proyecto-kotlin",
+    "storage_bucket": "segundo-proyecto-kotlin.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:542284239773:android:02403eeb16a7a1bd691574",
+        "android_client_info": {
+          "package_name": "com.controldegastos.segundo_proyecto_kotlin"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "542284239773-slekp94vm2nr0gbegk8aonok9e1l46lj.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.controldegastos.segundo_proyecto_kotlin",
+            "certificate_hash": "d4bc52f0a8250da7fd095d02e0eabf4a35b78277"
+          }
+        },
+        {
+          "client_id": "542284239773-4oaq4apn7tqoj4fs66s603ilp0unuq0s.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCTxAa-ILVY0NmmtKfTcHxfpptmwWFSeCc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "542284239773-4oaq4apn7tqoj4fs66s603ilp0unuq0s.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
