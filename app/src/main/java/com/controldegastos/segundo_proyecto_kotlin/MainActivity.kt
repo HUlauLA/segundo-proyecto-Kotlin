@@ -48,7 +48,29 @@ googleSignInClient = GoogleSignIn.getClient(this, gso)
 }
 
 
+    
 
+override fun onActivityResult(
+    requestCode: Int,
+    resultCode: Int,
+    data: Intent?
+) {
+    super.onActivityResult(requestCode, resultCode, data)
+
+    if (requestCode == 100) {
+
+        val task = GoogleSignIn.getSignedInAccountFromIntent(data)
+
+        if (task.isSuccessful) {
+
+            Toast.makeText(
+                this,
+                "Inicio con Google exitoso",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+}
 
 
 
