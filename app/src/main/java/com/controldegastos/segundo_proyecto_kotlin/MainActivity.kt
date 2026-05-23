@@ -21,6 +21,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var auth: FirebaseAuth
     private lateinit var googleSignInClient: GoogleSignInClient
 
+
+
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -28,6 +30,32 @@ class MainActivity : ComponentActivity() {
         setContentView(R.layout.activity_main)
 
         auth = FirebaseAuth.getInstance()
+
+
+
+//codigo--
+val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+    .requestIdToken(getString(R.string.default_web_client_id))
+    .requestEmail()
+    .build()
+
+googleSignInClient = GoogleSignIn.getClient(this, gso)
+
+
+
+    val signInIntent = googleSignInClient.signInIntent
+    startActivityForResult(signInIntent, 100)
+}
+
+
+
+
+
+
+
+
+
+        
 
         val txtCorreo = findViewById<EditText>(R.id.txtCorreo)
         val txtPassword = findViewById<EditText>(R.id.txtPassword)
