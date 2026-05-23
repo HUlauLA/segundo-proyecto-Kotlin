@@ -42,8 +42,6 @@
 
 
 
-
-
 <Button
     android:id="@+id/btnGoogle"
     android:layout_width="match_parent"
