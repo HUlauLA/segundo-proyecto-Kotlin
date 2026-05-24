@@ -1,85 +1,136 @@
 package com.controldegastos.segundo_proyecto_kotlin
 
 import android.os.Bundle
-import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.auth.FirebaseAuth
 
 class MainActivity : ComponentActivity() {
 
-    private val db = FirebaseFirestore.getInstance()
+    private lateinit var auth: FirebaseAuth
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        auth = FirebaseAuth.getInstance()
+
         setContent {
-            MaterialTheme {
-                var resultado by remember {
-                    mutableStateOf("Cargando evento desde Firebase...")
-                }
-
-                LaunchedEffect(Unit) {
-                    leerEventos { texto ->
-                        resultado = texto
-                    }
-                }
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(text = resultado)
-                }
-            }
+            PantallaLogin(auth)
         }
     }
+}
 
-    private fun leerEventos(onResultado: (String) -> Unit) {
-        db.collection("eventos")
-            .get()
-            .addOnSuccessListener { documentos ->
-                if (documentos.isEmpty) {
-                    onResultado("No hay eventos registrados")
-                    Log.d("FIREBASE", "No hay eventos registrados")
-                } else {
-                    val listaEventos = mutableListOf<String>()
+@Composable
+fun PantallaLogin(auth: FirebaseAuth) {
 
-                    for (documento in documentos) {
-                        val titulo = documento.getString("titulo") ?: "Sin título"
-                        val descripcion = documento.getString("descripcion") ?: "Sin descripción"
-                        val fecha = documento.getString("fecha") ?: "Sin fecha"
-                        val hora = documento.getString("hora") ?: "Sin hora"
-                        val ubicacion = documento.getString("ubicacion") ?: "Sin ubicación"
+    var correo by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
 
-                        val evento = """
-                            Título: $titulo
-                            Descripción: $descripcion
-                            Fecha: $fecha
-                            Hora: $hora
-                            Ubicación: $ubicacion
-                        """.trimIndent()
+    val context = LocalContext.current
 
-                        listaEventos.add(evento)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(20.dp),
+        verticalArrangement = Arrangement.Center
+    ) {
 
-                        Log.d("FIREBASE", "Evento leído: $evento")
+        Text(
+            text = "Gestión de Eventos",
+            style = MaterialTheme.typography.headlineMedium
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        OutlinedTextField(
+            value = correo,
+            onValueChange = { correo = it },
+            label = { Text("Correo electrónico") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("Contraseña") },
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // LOGIN
+        Button(
+            onClick = {
+
+                auth.signInWithEmailAndPassword(correo, password)
+                    .addOnCompleteListener {
+
+                        if (it.isSuccessful) {
+
+                            Toast.makeText(
+                                context,
+                                "Inicio de sesión exitoso",
+                                Toast.LENGTH_SHORT
+                            ).show()
+
+                        } else {
+
+                            Toast.makeText(
+                                context,
+                                "Error al iniciar sesión",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
                     }
 
-                    onResultado(listaEventos.joinToString("\n\n"))
-                }
-            }
-            .addOnFailureListener { error ->
-                onResultado("Error al leer Firestore: ${error.message}")
-                Log.e("FIREBASE", "Error al leer eventos", error)
-            }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Iniciar Sesión")
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // REGISTRO
+        Button(
+            onClick = {
+
+                auth.createUserWithEmailAndPassword(correo, password)
+                    .addOnCompleteListener {
+
+                        if (it.isSuccessful) {
+
+                            Toast.makeText(
+                                context,
+                                "Usuario registrado correctamente",
+                                Toast.LENGTH_SHORT
+                            ).show()
+
+                        } else {
+
+                            Toast.makeText(
+                                context,
+                                "Error al registrar usuario",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Registrarse")
+        }
     }
 }
