@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.Timestamp
+import androidx.compose.ui.platform.LocalContext
 
 
 private const val ADMIN_EMAIL = "admin@gmail.com"
@@ -77,6 +78,12 @@ data class Evento(
     val descripcion: String = ""
 )
 
+data class UsuarioInscrito(
+    val uid: String = "",
+    val nombre: String = "",
+    val correo: String = ""
+)
+
 @Composable
 fun AppEventos(auth: FirebaseAuth) {
     val db = FirebaseFirestore.getInstance()
@@ -112,6 +119,24 @@ fun AppEventos(auth: FirebaseAuth) {
 
     when (pantallaActual) {
 
+        "inscritos" -> {
+            eventoSeleccionado?.let { evento ->
+                PantallaInscritosEvento(
+                    evento = evento,
+                    onVolver = {
+                        pantallaActual = "home"
+                    }
+                )
+            }
+        }
+
+        "misEventos" -> PantallaMisEventos(
+            auth = auth,
+            onVolver = {
+                pantallaActual = "home"
+            }
+        )
+
         "login" -> PantallaLogin(
             auth = auth,
             onLoginExitoso = {
@@ -125,12 +150,20 @@ fun AppEventos(auth: FirebaseAuth) {
         "home" -> PantallaHomeEventos(
             eventos = eventos,
             rolUsuario = rolUsuario,
+            auth = auth,
             onCrearEvento = {
                 pantallaActual = "crear"
             },
             onEditarEvento = { evento ->
                 eventoSeleccionado = evento
                 pantallaActual = "editar"
+            },
+            onMisEventos = {
+                pantallaActual = "misEventos"
+            },
+            onVerInscritos = { evento ->
+                eventoSeleccionado = evento
+                pantallaActual = "inscritos"
             }
         )
 
@@ -386,9 +419,14 @@ fun obtenerRolUsuario(
 fun PantallaHomeEventos(
     eventos: List<Evento>,
     rolUsuario: String,
+    auth: FirebaseAuth,
     onCrearEvento: () -> Unit,
-    onEditarEvento: (Evento) -> Unit
+    onEditarEvento: (Evento) -> Unit,
+    onMisEventos: () -> Unit,
+    onVerInscritos: (Evento) -> Unit
 ) {
+    val context = LocalContext.current
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -400,6 +438,19 @@ fun PantallaHomeEventos(
             text = "Eventos",
             style = MaterialTheme.typography.headlineMedium
         )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (rolUsuario == "usuario") {
+            Button(
+                onClick = onMisEventos,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Mis eventos")
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -443,6 +494,57 @@ fun PantallaHomeEventos(
                             onClick = { onEditarEvento(evento) }
                         ) {
                             Text("Editar / Eliminar")
+                        }
+                    }
+
+                    if (rolUsuario == "admin") {
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Button(
+                            onClick = {
+                                onVerInscritos(evento)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Ver inscritos")
+                        }
+                    }
+
+                    if (rolUsuario == "usuario") {
+                        Button(
+                            onClick = {
+                                val usuarioId = auth.currentUser?.uid
+
+                                if (usuarioId != null) {
+                                    confirmarAsistenciaEvento(
+                                        eventoId = evento.id,
+                                        usuarioId = usuarioId,
+                                        onExito = {
+                                            Toast.makeText(
+                                                context,
+                                                "Asistencia confirmada",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        },
+                                        onYaConfirmado = {
+                                            Toast.makeText(
+                                                context,
+                                                "Ya confirmaste asistencia a este evento",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        },
+                                        onError = { mensaje ->
+                                            Toast.makeText(
+                                                context,
+                                                mensaje,
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    )
+                                }
+                            }
+                        ) {
+                            Text("Confirmar asistencia")
                         }
                     }
                 }
@@ -745,5 +847,417 @@ fun PantallaEditarEvento(
                 }
             }
         )
+    }
+}
+
+fun confirmarAsistenciaEvento(
+    eventoId: String,
+    usuarioId: String,
+    onExito: () -> Unit,
+    onYaConfirmado: () -> Unit,
+    onError: (String) -> Unit
+) {
+    val db = FirebaseFirestore.getInstance()
+
+    db.collection("asistencias")
+        .whereEqualTo("eventoId", eventoId)
+        .whereEqualTo("usuarioId", usuarioId)
+        .get()
+        .addOnSuccessListener { documentos ->
+
+            if (!documentos.isEmpty) {
+                onYaConfirmado()
+            } else {
+                val asistencia = hashMapOf(
+                    "eventoId" to eventoId,
+                    "usuarioId" to usuarioId,
+                    "estado" to "confirmado",
+                    "fechaConfirmacion" to Timestamp.now()
+                )
+
+                db.collection("asistencias")
+                    .add(asistencia)
+                    .addOnSuccessListener {
+                        onExito()
+                    }
+                    .addOnFailureListener { error ->
+                        onError(error.message ?: "Error al confirmar asistencia")
+                    }
+            }
+        }
+        .addOnFailureListener { error ->
+            onError(error.message ?: "Error al verificar asistencia")
+        }
+}
+
+fun obtenerMisEventosUsuario(
+    usuarioId: String,
+    onResultado: (List<Evento>) -> Unit,
+    onError: (String) -> Unit
+) {
+    val db = FirebaseFirestore.getInstance()
+
+    db.collection("asistencias")
+        .whereEqualTo("usuarioId", usuarioId)
+        .whereEqualTo("estado", "confirmado")
+        .get()
+        .addOnSuccessListener { asistencias ->
+
+            if (asistencias.isEmpty) {
+                onResultado(emptyList())
+                return@addOnSuccessListener
+            }
+
+            val eventosConfirmados = mutableListOf<Evento>()
+            var pendientes = asistencias.size()
+
+            for (asistencia in asistencias) {
+                val eventoId = asistencia.getString("eventoId") ?: ""
+
+                if (eventoId.isBlank()) {
+                    pendientes--
+                    if (pendientes == 0) {
+                        onResultado(eventosConfirmados)
+                    }
+                    continue
+                }
+
+                db.collection("eventos")
+                    .document(eventoId)
+                    .get()
+                    .addOnSuccessListener { doc ->
+
+                        if (doc.exists()) {
+                            val evento = Evento(
+                                id = doc.id,
+                                titulo = doc.getString("titulo") ?: "",
+                                fecha = doc.getString("fecha") ?: "",
+                                hora = doc.getString("hora") ?: "",
+                                ubicacion = doc.getString("ubicacion") ?: "",
+                                descripcion = doc.getString("descripcion") ?: ""
+                            )
+
+                            eventosConfirmados.add(evento)
+                        }
+
+                        pendientes--
+
+                        if (pendientes == 0) {
+                            onResultado(eventosConfirmados)
+                        }
+                    }
+                    .addOnFailureListener { error ->
+                        pendientes--
+
+                        if (pendientes == 0) {
+                            onResultado(eventosConfirmados)
+                        }
+                    }
+            }
+        }
+        .addOnFailureListener { error ->
+            onError(error.message ?: "Error al obtener tus eventos")
+        }
+}
+
+@Composable
+fun PantallaMisEventos(
+    auth: FirebaseAuth,
+    onVolver: () -> Unit
+) {
+    val context = LocalContext.current
+    var eventos by remember { mutableStateOf<List<Evento>>(emptyList()) }
+    var cargando by remember { mutableStateOf(true) }
+
+    val hoy = remember {
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            .format(java.util.Date())
+    }
+
+    LaunchedEffect(Unit) {
+        val usuarioId = auth.currentUser?.uid
+
+        if (usuarioId != null) {
+            obtenerMisEventosUsuario(
+                usuarioId = usuarioId,
+                onResultado = { lista ->
+                    eventos = lista
+                    cargando = false
+                },
+                onError = { mensaje ->
+                    cargando = false
+                    Toast.makeText(
+                        context,
+                        mensaje,
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            )
+        } else {
+            cargando = false
+            Toast.makeText(
+                context,
+                "No hay usuario autenticado",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    val eventosProximos = eventos
+        .filter { it.fecha >= hoy }
+        .sortedBy { it.fecha }
+
+    val eventosAnteriores = eventos
+        .filter { it.fecha < hoy }
+        .sortedByDescending { it.fecha }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(20.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        Text(
+            text = "Mis eventos",
+            style = MaterialTheme.typography.headlineMedium
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Button(
+            onClick = onVolver,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Volver")
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        if (cargando) {
+            Text("Cargando tus eventos...")
+        } else {
+            Text(
+                text = "Próximos",
+                style = MaterialTheme.typography.titleLarge
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (eventosProximos.isEmpty()) {
+                Text("No tienes eventos próximos confirmados.")
+            } else {
+                eventosProximos.forEach { evento ->
+                    CardEventoMisEventos(evento)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Anteriores",
+                style = MaterialTheme.typography.titleLarge
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (eventosAnteriores.isEmpty()) {
+                Text("No tienes eventos anteriores.")
+            } else {
+                eventosAnteriores.forEach { evento ->
+                    CardEventoMisEventos(evento)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CardEventoMisEventos(evento: Evento) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Text(
+                text = evento.titulo,
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text("Fecha: ${evento.fecha}")
+            Text("Hora: ${evento.hora}")
+            Text("Ubicación: ${evento.ubicacion}")
+            Text("Descripción: ${evento.descripcion}")
+        }
+    }
+}
+
+fun obtenerInscritosEvento(
+    eventoId: String,
+    onResultado: (List<UsuarioInscrito>) -> Unit,
+    onError: (String) -> Unit
+) {
+    val db = FirebaseFirestore.getInstance()
+
+    db.collection("asistencias")
+        .whereEqualTo("eventoId", eventoId)
+        .whereEqualTo("estado", "confirmado")
+        .get()
+        .addOnSuccessListener { asistencias ->
+
+            if (asistencias.isEmpty) {
+                onResultado(emptyList())
+                return@addOnSuccessListener
+            }
+
+            val inscritos = mutableListOf<UsuarioInscrito>()
+            var pendientes = asistencias.size()
+
+            for (asistencia in asistencias) {
+                val usuarioId = asistencia.getString("usuarioId") ?: ""
+
+                if (usuarioId.isBlank()) {
+                    pendientes--
+                    if (pendientes == 0) {
+                        onResultado(inscritos)
+                    }
+                    continue
+                }
+
+                db.collection("usuarios")
+                    .document(usuarioId)
+                    .get()
+                    .addOnSuccessListener { usuarioDoc ->
+
+                        if (usuarioDoc.exists()) {
+                            val usuario = UsuarioInscrito(
+                                uid = usuarioDoc.getString("uid") ?: usuarioId,
+                                nombre = usuarioDoc.getString("nombre") ?: "Sin nombre",
+                                correo = usuarioDoc.getString("correo") ?: "Sin correo"
+                            )
+
+                            inscritos.add(usuario)
+                        }
+
+                        pendientes--
+
+                        if (pendientes == 0) {
+                            onResultado(inscritos)
+                        }
+                    }
+                    .addOnFailureListener {
+                        pendientes--
+
+                        if (pendientes == 0) {
+                            onResultado(inscritos)
+                        }
+                    }
+            }
+        }
+        .addOnFailureListener { error ->
+            onError(error.message ?: "Error al obtener inscritos")
+        }
+}
+
+@Composable
+fun PantallaInscritosEvento(
+    evento: Evento,
+    onVolver: () -> Unit
+) {
+    val context = LocalContext.current
+    var inscritos by remember { mutableStateOf<List<UsuarioInscrito>>(emptyList()) }
+    var cargando by remember { mutableStateOf(true) }
+
+    LaunchedEffect(evento.id) {
+        obtenerInscritosEvento(
+            eventoId = evento.id,
+            onResultado = { lista ->
+                inscritos = lista
+                cargando = false
+            },
+            onError = { mensaje ->
+                cargando = false
+                Toast.makeText(
+                    context,
+                    mensaje,
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        )
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = 45.dp, start = 20.dp, end = 20.dp, bottom = 20.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        Text(
+            text = "Inscritos",
+            style = MaterialTheme.typography.headlineMedium
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = evento.titulo,
+            style = MaterialTheme.typography.titleLarge
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Button(
+            onClick = onVolver,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Volver")
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        if (cargando) {
+            Text("Cargando inscritos...")
+        } else {
+            Text(
+                text = "Total inscritos: ${inscritos.size}",
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (inscritos.isEmpty()) {
+                Text("No hay usuarios inscritos en este evento.")
+            } else {
+                inscritos.forEach { usuario ->
+                    CardUsuarioInscrito(usuario)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CardUsuarioInscrito(usuario: UsuarioInscrito) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Text(
+                text = usuario.nombre,
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text("Correo: ${usuario.correo}")
+        }
     }
 }
