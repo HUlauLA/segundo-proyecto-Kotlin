@@ -14,7 +14,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.Timestamp
 
+
+private const val ADMIN_EMAIL = "admin@gmail.com"
 class MainActivity : ComponentActivity() {
 
     private lateinit var auth: FirebaseAuth
@@ -30,33 +34,78 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+fun guardarUsuarioEnFirestore(
+    uid: String,
+    nombre: String,
+    correo: String,
+    onExito: () -> Unit,
+    onError: (String) -> Unit
+) {
+    val db = FirebaseFirestore.getInstance()
+
+    val rol = if (correo.equals(ADMIN_EMAIL, ignoreCase = true)) {
+        "admin"
+    } else {
+        "usuario"
+    }
+
+    val usuario = hashMapOf(
+        "uid" to uid,
+        "nombre" to nombre,
+        "correo" to correo,
+        "rol" to rol,
+        "creadoEn" to Timestamp.now()
+    )
+
+    db.collection("usuarios")
+        .document(uid)
+        .set(usuario)
+        .addOnSuccessListener {
+            onExito()
+        }
+        .addOnFailureListener { error ->
+            onError(error.message ?: "Error al guardar usuario")
+        }
+}
+
 data class Evento(
-    val id: Int,
-    val titulo: String,
-    val fecha: String,
-    val hora: String,
-    val ubicacion: String,
-    val descripcion: String
+    val id: String = "",
+    val titulo: String = "",
+    val fecha: String = "",
+    val hora: String = "",
+    val ubicacion: String = "",
+    val descripcion: String = ""
 )
 
 @Composable
 fun AppEventos(auth: FirebaseAuth) {
+    val db = FirebaseFirestore.getInstance()
 
     var pantallaActual by remember { mutableStateOf("login") }
+    var rolUsuario by remember { mutableStateOf("usuario")}
 
     var eventos by remember {
-        mutableStateOf(
-            listOf(
-                Evento(
-                    id = 1,
-                    titulo = "Conferencia de Tecnología",
-                    fecha = "25/05/2026",
-                    hora = "2:00 PM",
-                    ubicacion = "San Salvador",
-                    descripcion = "Evento sobre innovación y desarrollo móvil."
-                )
-            )
-        )
+        mutableStateOf<List<Evento>>(emptyList())
+    }
+
+    LaunchedEffect(Unit) {
+        db.collection("eventos")
+            .get()
+            .addOnSuccessListener { documentos ->
+                eventos = documentos.map { doc ->
+                    Evento(
+                        id = doc.id,
+                        titulo = doc.getString("titulo") ?: "",
+                        fecha = doc.getString("fecha") ?: "",
+                        hora = doc.getString("hora") ?: "",
+                        ubicacion = doc.getString("ubicacion") ?: "",
+                        descripcion = doc.getString("descripcion") ?: ""
+                    )
+                }
+            }
+            .addOnFailureListener {
+                eventos = emptyList()
+            }
     }
 
     var eventoSeleccionado by remember { mutableStateOf<Evento?>(null) }
@@ -67,11 +116,15 @@ fun AppEventos(auth: FirebaseAuth) {
             auth = auth,
             onLoginExitoso = {
                 pantallaActual = "home"
+            },
+            onRolObtenido = { rol ->
+                rolUsuario = rol
             }
         )
 
         "home" -> PantallaHomeEventos(
             eventos = eventos,
+            rolUsuario = rolUsuario,
             onCrearEvento = {
                 pantallaActual = "crear"
             },
@@ -83,9 +136,23 @@ fun AppEventos(auth: FirebaseAuth) {
 
         "crear" -> PantallaCrearEvento(
             onGuardar = { nuevoEvento ->
-                val nuevoId = (eventos.maxOfOrNull { it.id } ?: 0) + 1
-                eventos = eventos + nuevoEvento.copy(id = nuevoId)
-                pantallaActual = "home"
+
+                val datosEvento = hashMapOf(
+                    "titulo" to nuevoEvento.titulo,
+                    "fecha" to nuevoEvento.fecha,
+                    "hora" to nuevoEvento.hora,
+                    "ubicacion" to nuevoEvento.ubicacion,
+                    "descripcion" to nuevoEvento.descripcion,
+                    "estado" to "activo",
+                    "organizadorId" to (auth.currentUser?.uid ?: "sin_usuario")
+                )
+
+                db.collection("eventos")
+                    .add(datosEvento)
+                    .addOnSuccessListener { documento ->
+                        eventos = eventos + nuevoEvento.copy(id = documento.id)
+                        pantallaActual = "home"
+                    }
             },
             onCancelar = {
                 pantallaActual = "home"
@@ -97,14 +164,34 @@ fun AppEventos(auth: FirebaseAuth) {
                 PantallaEditarEvento(
                     evento = evento,
                     onActualizar = { eventoActualizado ->
-                        eventos = eventos.map {
-                            if (it.id == eventoActualizado.id) eventoActualizado else it
-                        }
-                        pantallaActual = "home"
+
+                        val datosActualizados = mapOf(
+                            "titulo" to eventoActualizado.titulo,
+                            "fecha" to eventoActualizado.fecha,
+                            "hora" to eventoActualizado.hora,
+                            "ubicacion" to eventoActualizado.ubicacion,
+                            "descripcion" to eventoActualizado.descripcion
+                        )
+
+                        db.collection("eventos")
+                            .document(eventoActualizado.id)
+                            .update(datosActualizados)
+                            .addOnSuccessListener {
+                                eventos = eventos.map {
+                                    if (it.id == eventoActualizado.id) eventoActualizado else it
+                                }
+                                pantallaActual = "home"
+                            }
                     },
                     onEliminar = { id ->
-                        eventos = eventos.filter { it.id != id }
-                        pantallaActual = "home"
+
+                        db.collection("eventos")
+                            .document(id)
+                            .delete()
+                            .addOnSuccessListener {
+                                eventos = eventos.filter { it.id != id }
+                                pantallaActual = "home"
+                            }
                     },
                     onCancelar = {
                         pantallaActual = "home"
@@ -118,7 +205,8 @@ fun AppEventos(auth: FirebaseAuth) {
 @Composable
 fun PantallaLogin(
     auth: FirebaseAuth,
-    onLoginExitoso: () -> Unit
+    onLoginExitoso: () -> Unit,
+    onRolObtenido: (String) -> Unit
 ) {
 
     var correo by remember { mutableStateOf("") }
@@ -164,20 +252,37 @@ fun PantallaLogin(
             onClick = {
 
                 auth.signInWithEmailAndPassword(correo, password)
-                    .addOnCompleteListener {
+                    .addOnCompleteListener { task ->
 
-                        if (it.isSuccessful) {
+                        if (task.isSuccessful) {
 
-                            Toast.makeText(
-                                context,
-                                "Inicio de sesión exitoso",
-                                Toast.LENGTH_SHORT
-                            ).show()
+                            val usuarioFirebase = auth.currentUser
 
-                            onLoginExitoso()
+                            if (usuarioFirebase != null) {
+                                obtenerRolUsuario(
+                                    uid = usuarioFirebase.uid,
+                                    onResultado = { rol ->
+                                        onRolObtenido(rol)
+
+                                        Toast.makeText(
+                                            context,
+                                            "Inicio de sesión exitoso como $rol",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+
+                                        onLoginExitoso()
+                                    },
+                                    onError = { mensaje ->
+                                        Toast.makeText(
+                                            context,
+                                            mensaje,
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                )
+                            }
 
                         } else {
-
                             Toast.makeText(
                                 context,
                                 "Error al iniciar sesión",
@@ -199,18 +304,45 @@ fun PantallaLogin(
             onClick = {
 
                 auth.createUserWithEmailAndPassword(correo, password)
-                    .addOnCompleteListener {
+                    .addOnCompleteListener { task ->
 
-                        if (it.isSuccessful) {
+                        if (task.isSuccessful) {
 
-                            Toast.makeText(
-                                context,
-                                "Usuario registrado correctamente",
-                                Toast.LENGTH_SHORT
-                            ).show()
+                            val usuarioFirebase = auth.currentUser
+
+                            if (usuarioFirebase != null) {
+                                guardarUsuarioEnFirestore(
+                                    uid = usuarioFirebase.uid,
+                                    nombre = correo.substringBefore("@"),
+                                    correo = correo,
+                                    onExito = {
+                                        Toast.makeText(
+                                            context,
+                                            "Usuario registrado correctamente",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+
+                                        val rolNuevo = if (correo.equals(ADMIN_EMAIL, ignoreCase = true)) {
+                                            "admin"
+                                        } else {
+                                            "usuario"
+                                        }
+
+                                        onRolObtenido(rolNuevo)
+
+                                        onLoginExitoso()
+                                    },
+                                    onError = { mensaje ->
+                                        Toast.makeText(
+                                            context,
+                                            mensaje,
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                )
+                            }
 
                         } else {
-
                             Toast.makeText(
                                 context,
                                 "Error al registrar usuario",
@@ -227,9 +359,33 @@ fun PantallaLogin(
     }
 }
 
+fun obtenerRolUsuario(
+    uid: String,
+    onResultado: (String) -> Unit,
+    onError: (String) -> Unit
+) {
+    val db = FirebaseFirestore.getInstance()
+
+    db.collection("usuarios")
+        .document(uid)
+        .get()
+        .addOnSuccessListener { documento ->
+            if (documento.exists()) {
+                val rol = documento.getString("rol") ?: "usuario"
+                onResultado(rol)
+            } else {
+                onResultado("usuario")
+            }
+        }
+        .addOnFailureListener { error ->
+            onError(error.message ?: "Error al obtener rol")
+        }
+}
+
 @Composable
 fun PantallaHomeEventos(
     eventos: List<Evento>,
+    rolUsuario: String,
     onCrearEvento: () -> Unit,
     onEditarEvento: (Evento) -> Unit
 ) {
@@ -247,11 +403,13 @@ fun PantallaHomeEventos(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Button(
-            onClick = onCrearEvento,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Crear Evento")
+        if (rolUsuario == "admin") {
+            Button(
+                onClick = onCrearEvento,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Crear Evento")
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -280,11 +438,12 @@ fun PantallaHomeEventos(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    Button(
-                        onClick = { onEditarEvento(evento) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Editar / Eliminar")
+                    if (rolUsuario == "admin") {
+                        Button(
+                            onClick = { onEditarEvento(evento) }
+                        ) {
+                            Text("Editar / Eliminar")
+                        }
                     }
                 }
             }
@@ -380,7 +539,7 @@ fun PantallaCrearEvento(
                     ).show()
                 } else {
                     val nuevoEvento = Evento(
-                        id = 0,
+                        id = "",
                         titulo = titulo,
                         fecha = fecha,
                         hora = hora,
@@ -417,7 +576,7 @@ fun PantallaCrearEvento(
 fun PantallaEditarEvento(
     evento: Evento,
     onActualizar: (Evento) -> Unit,
-    onEliminar: (Int) -> Unit,
+    onEliminar: (String) -> Unit,
     onCancelar: () -> Unit
 ) {
     var titulo by remember { mutableStateOf(evento.titulo) }
