@@ -16,8 +16,10 @@ import androidx.compose.ui.unit.dp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.Timestamp
-import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
+import androidx.core.content.ContextCompat.startActivity
 
+//CREDENCIALES PARA EL USUARIO ADMINISTRADOR: admin@gmail.com ; admin123
 
 private const val ADMIN_EMAIL = "admin@gmail.com"
 class MainActivity : ComponentActivity() {
@@ -35,6 +37,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+//Para guardar el usuario en Firebase
 fun guardarUsuarioEnFirestore(
     uid: String,
     nombre: String,
@@ -82,6 +85,14 @@ data class UsuarioInscrito(
     val uid: String = "",
     val nombre: String = "",
     val correo: String = ""
+)
+
+data class ComentarioEvento(
+    val id: String = "",
+    val eventoId: String = "",
+    val usuarioId: String = "",
+    val nombreUsuario: String = "",
+    val comentario: String = ""
 )
 
 @Composable
@@ -164,6 +175,11 @@ fun AppEventos(auth: FirebaseAuth) {
             onVerInscritos = { evento ->
                 eventoSeleccionado = evento
                 pantallaActual = "inscritos"
+            },
+            onCerrarSesion = {
+                auth.signOut()
+                rolUsuario = "usuario"
+                pantallaActual = "login"
             }
         )
 
@@ -392,6 +408,7 @@ fun PantallaLogin(
     }
 }
 
+//Aqui almacenamos el rol de cada usuario, dependiendo del rol ese será el acceso a la app
 fun obtenerRolUsuario(
     uid: String,
     onResultado: (String) -> Unit,
@@ -423,7 +440,8 @@ fun PantallaHomeEventos(
     onCrearEvento: () -> Unit,
     onEditarEvento: (Evento) -> Unit,
     onMisEventos: () -> Unit,
-    onVerInscritos: (Evento) -> Unit
+    onVerInscritos: (Evento) -> Unit,
+    onCerrarSesion: () -> Unit
 ) {
     val context = LocalContext.current
 
@@ -438,6 +456,17 @@ fun PantallaHomeEventos(
             text = "Eventos",
             style = MaterialTheme.typography.headlineMedium
         )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Button(
+            onClick = onCerrarSesion,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Cerrar sesión")
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -466,7 +495,24 @@ fun PantallaHomeEventos(
         Spacer(modifier = Modifier.height(16.dp))
 
         eventos.forEach { evento ->
+            var comentarioTexto by remember { mutableStateOf("") }
+            var comentariosEvento by remember { mutableStateOf<List<ComentarioEvento>>(emptyList()) }
 
+            LaunchedEffect(evento.id) {
+                obtenerComentariosEvento(
+                    eventoId = evento.id,
+                    onResultado = { lista ->
+                        comentariosEvento = lista
+                    },
+                    onError = { mensaje ->
+                        Toast.makeText(
+                            context,
+                            mensaje,
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                )
+            }
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -510,6 +556,17 @@ fun PantallaHomeEventos(
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Button(
+                        onClick = {
+                            compartirEvento(context, evento)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Compartir evento")
+                    }
+
                     if (rolUsuario == "usuario") {
                         Button(
                             onClick = {
@@ -545,6 +602,115 @@ fun PantallaHomeEventos(
                             }
                         ) {
                             Text("Confirmar asistencia")
+                        }
+                    }
+
+                    if (rolUsuario == "usuario") {
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        OutlinedTextField(
+                            value = comentarioTexto,
+                            onValueChange = { comentarioTexto = it },
+                            label = { Text("Escribe un comentario") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Button(
+                            onClick = {
+                                val usuarioId = auth.currentUser?.uid
+
+                                if (usuarioId == null) {
+                                    Toast.makeText(
+                                        context,
+                                        "No hay usuario autenticado",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else if (comentarioTexto.isBlank()) {
+                                    Toast.makeText(
+                                        context,
+                                        "Escribe un comentario",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else {
+                                    guardarComentarioEvento(
+                                        eventoId = evento.id,
+                                        usuarioId = usuarioId,
+                                        comentario = comentarioTexto,
+                                        onExito = {
+                                            Toast.makeText(
+                                                context,
+                                                "Comentario guardado",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+
+                                            obtenerComentariosEvento(
+                                                eventoId = evento.id,
+                                                onResultado = { lista ->
+                                                    comentariosEvento = lista
+                                                },
+                                                onError = { mensaje ->
+                                                    Toast.makeText(
+                                                        context,
+                                                        mensaje,
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                }
+                                            )
+
+                                            comentarioTexto = ""
+                                        },
+                                        onError = { mensaje ->
+                                            Toast.makeText(
+                                                context,
+                                                mensaje,
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Enviar comentario")
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "Comentarios",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    if (comentariosEvento.isEmpty()) {
+                        Text("No hay comentarios todavía.")
+                    } else {
+                        comentariosEvento.forEach { comentario ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(10.dp)
+                                ) {
+                                    Text(
+                                        text = comentario.nombreUsuario,
+                                        style = MaterialTheme.typography.titleSmall
+                                    )
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                    Text(
+                                        text = comentario.comentario,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -1260,4 +1426,148 @@ fun CardUsuarioInscrito(usuario: UsuarioInscrito) {
             Text("Correo: ${usuario.correo}")
         }
     }
+}
+
+fun compartirEvento(
+    context: android.content.Context,
+    evento: Evento
+) {
+    val textoCompartir = """
+        Te invito a este evento en mi comunidad:
+
+        ${evento.titulo}
+
+        Fecha: ${evento.fecha}
+        Hora: ${evento.hora}
+        Ubicación: ${evento.ubicacion}
+
+        Descripción:
+        ${evento.descripcion}
+    """.trimIndent()
+
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_SUBJECT, "Evento comunitario: ${evento.titulo}")
+        putExtra(Intent.EXTRA_TEXT, textoCompartir)
+    }
+
+    val chooser = Intent.createChooser(intent, "Compartir evento")
+    context.startActivity(chooser)
+}
+
+fun guardarComentarioEvento(
+    eventoId: String,
+    usuarioId: String,
+    comentario: String,
+    onExito: () -> Unit,
+    onError: (String) -> Unit
+) {
+    val db = FirebaseFirestore.getInstance()
+
+    val datosComentario = hashMapOf(
+        "eventoId" to eventoId,
+        "usuarioId" to usuarioId,
+        "comentario" to comentario,
+        "creadoEn" to Timestamp.now()
+    )
+
+    db.collection("comentarios")
+        .add(datosComentario)
+        .addOnSuccessListener {
+            onExito()
+        }
+        .addOnFailureListener { error ->
+            onError(error.message ?: "Error al guardar comentario")
+        }
+}
+
+fun obtenerComentariosEvento(
+    eventoId: String,
+    onResultado: (List<ComentarioEvento>) -> Unit,
+    onError: (String) -> Unit
+) {
+    val db = FirebaseFirestore.getInstance()
+
+    db.collection("comentarios")
+        .whereEqualTo("eventoId", eventoId)
+        .get()
+        .addOnSuccessListener { documentos ->
+
+            if (documentos.isEmpty) {
+                onResultado(emptyList())
+                return@addOnSuccessListener
+            }
+
+            val comentarios = mutableListOf<ComentarioEvento>()
+            var pendientes = documentos.size()
+
+            for (doc in documentos) {
+                val usuarioId = doc.getString("usuarioId") ?: ""
+                val textoComentario = doc.getString("comentario") ?: ""
+
+                if (usuarioId.isBlank()) {
+                    comentarios.add(
+                        ComentarioEvento(
+                            id = doc.id,
+                            eventoId = eventoId,
+                            usuarioId = usuarioId,
+                            nombreUsuario = "Usuario",
+                            comentario = textoComentario
+                        )
+                    )
+
+                    pendientes--
+
+                    if (pendientes == 0) {
+                        onResultado(comentarios)
+                    }
+
+                    continue
+                }
+
+                db.collection("usuarios")
+                    .document(usuarioId)
+                    .get()
+                    .addOnSuccessListener { usuarioDoc ->
+
+                        val nombre = usuarioDoc.getString("nombre") ?: "Usuario"
+
+                        comentarios.add(
+                            ComentarioEvento(
+                                id = doc.id,
+                                eventoId = eventoId,
+                                usuarioId = usuarioId,
+                                nombreUsuario = nombre,
+                                comentario = textoComentario
+                            )
+                        )
+
+                        pendientes--
+
+                        if (pendientes == 0) {
+                            onResultado(comentarios)
+                        }
+                    }
+                    .addOnFailureListener {
+                        comentarios.add(
+                            ComentarioEvento(
+                                id = doc.id,
+                                eventoId = eventoId,
+                                usuarioId = usuarioId,
+                                nombreUsuario = "Usuario",
+                                comentario = textoComentario
+                            )
+                        )
+
+                        pendientes--
+
+                        if (pendientes == 0) {
+                            onResultado(comentarios)
+                        }
+                    }
+            }
+        }
+        .addOnFailureListener { error ->
+            onError(error.message ?: "Error al obtener comentarios")
+        }
 }
